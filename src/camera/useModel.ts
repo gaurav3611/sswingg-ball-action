@@ -12,10 +12,12 @@ import { loadTensorflowModel, type TensorflowPlugin } from 'react-native-fast-tf
  * `file://` URI, which the loader can read. In a development build it downloads from the dev
  * server the same way.
  */
-export function useModel(source: number): TensorflowPlugin & { path: string | null } {
+export function useModel(source: number, enabled = true): TensorflowPlugin & { path: string | null } {
   const [state, setState] = useState<TensorflowPlugin & { path: string | null }>({ model: undefined, state: 'loading', path: null });
 
   useEffect(() => {
+    // Pose tracking switched off: the model is not even loaded.
+    if (!enabled) return;
     let live = true;
     (async () => {
       try {
@@ -30,7 +32,7 @@ export function useModel(source: number): TensorflowPlugin & { path: string | nu
     return () => {
       live = false;
     };
-  }, [source]);
+  }, [source, enabled]);
 
   return state;
 }

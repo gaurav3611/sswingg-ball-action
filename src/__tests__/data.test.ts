@@ -138,3 +138,24 @@ describe('session parameters', () => {
     expect(clampFps(30, [])).toBe(30);
   });
 });
+
+import { applyLiveGuard } from '@/data/liveGuard';
+import { DEFAULT_SETTINGS } from '@/data/types';
+
+describe('live screen guard', () => {
+  it('turns pose tracking off, and says so, when the camera screen did not finish last time', () => {
+    const s = applyLiveGuard(DEFAULT_SETTINGS, true);
+    expect(s.poseTracking).toBe(false);
+    expect(s.poseAutoDisabled).toBe(true);
+    expect(s.defaultFps).toBe(DEFAULT_SETTINGS.defaultFps); // nothing else changes
+  });
+
+  it('changes nothing after a normal exit', () => {
+    expect(applyLiveGuard(DEFAULT_SETTINGS, false)).toBe(DEFAULT_SETTINGS);
+  });
+
+  it('does not mark tracking as turned off by the app when the person already turned it off', () => {
+    const off = { ...DEFAULT_SETTINGS, poseTracking: false };
+    expect(applyLiveGuard(off, true)).toBe(off);
+  });
+});

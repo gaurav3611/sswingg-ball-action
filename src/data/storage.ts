@@ -15,6 +15,7 @@ export const KEYS = {
   settings: 'ba.settings',
   onboarded: 'ba.onboarded',
   activeBowler: 'ba.activeBowler',
+  liveGuard: 'ba.liveGuard',
 } as const;
 
 export async function readJson<T>(key: string, fallback: T): Promise<T> {
@@ -29,6 +30,19 @@ export async function readJson<T>(key: string, fallback: T): Promise<T> {
 export async function writeJson(key: string, value: unknown): Promise<void> {
   await AsyncStorage.setItem(key, JSON.stringify(value));
 }
+
+/** See liveGuard.ts. Failing to write the flag must never get in the way of the camera. */
+export const liveGuard = {
+  set: () => AsyncStorage.setItem(KEYS.liveGuard, String(Date.now())).catch(() => {}),
+  clear: () => AsyncStorage.removeItem(KEYS.liveGuard).catch(() => {}),
+  isSet: async () => {
+    try {
+      return (await AsyncStorage.getItem(KEYS.liveGuard)) !== null;
+    } catch {
+      return false;
+    }
+  },
+};
 
 const sessionDir = (id: string) => new Directory(Paths.document, 'sessions', id);
 const unsupported = () => Platform.OS === 'web';

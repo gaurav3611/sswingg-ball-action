@@ -35,6 +35,16 @@ export default function Settings() {
         <Txt variant="small" tone="muted">
           Only the rates your phone reports are offered when you start a session.
         </Txt>
+        <ToggleRow
+          label="Pose tracking"
+          detail={
+            s.poseAutoDisabled && !s.poseTracking
+              ? 'Turned off by the app because the camera screen stopped last time. Recording still works. Turn it on to try again.'
+              : 'Finds and follows the bowler on the camera screen. Turn it off to record plain video.'
+          }
+          value={s.poseTracking}
+          onChange={(v) => app.updateSettings({ poseTracking: v, poseAutoDisabled: false })}
+        />
         <ToggleRow label="Show the skeleton" detail="On the live camera and in the replay." value={s.showSkeleton} onChange={(v) => app.updateSettings({ showSkeleton: v })} />
         <Button
           label="Run the orientation check again"

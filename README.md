@@ -72,6 +72,7 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Metric definitions and limits:
 - **Ball speed, spin, swing, line, length, momentum and distance are not measured.** There is no calibration step yet.
 - **Local sign-in only.** It separates people on a shared phone and hashes passwords with a salt, but it is not server authentication. There is no password reset.
 - **120 and 240 fps** are offered if the phone reports them. Whether the pipeline keeps up is shown after recording (requested against delivered rate), not assumed.
+- **Pose tracking can be switched off** in Settings. If the camera screen ever stops the app, tracking is turned off automatically at the next start so that recording keeps working. Without tracking there is no skeleton and no delivered-frame-rate count.
 - Phone turned during a recording: the skeleton is hidden if the video and pose track shapes differ.
 
 ## Licences

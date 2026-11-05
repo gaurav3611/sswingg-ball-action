@@ -16,7 +16,7 @@ import { diagnosticState } from '@/capture/diagnostics';
 import { MODEL_ID, usePoseCamera, type RecordingResult } from './usePoseCamera';
 import { encodePoseTrack } from '@/data/poseFile';
 import { parseSessionParams } from '@/data/sessionParams';
-import { adoptVideo, writePoseText } from '@/data/storage';
+import { adoptVideo, liveGuard, writePoseText } from '@/data/storage';
 import { formatDuration } from '@/data/summary';
 import { DELIVERY_TYPES, type DeliveryMarker, type DeliveryType, type Session } from '@/data/types';
 import { fitRect } from '@/pose/geometry';
@@ -78,13 +78,17 @@ export function LiveScreen() {
   const landscape = width > height;
   useKeepAwake();
 
+  const trackingOn = app.settings.poseTracking;
   const pose = usePoseCamera({
+    enabled: trackingOn,
     requestedFps: params.fps,
     knownRotations: app.settings.poseRotations,
     onRotationLearned: (orientation, rotation) =>
       app.updateSettings({ poseRotations: { ...app.settings.poseRotations, [orientation]: rotation } }),
   });
 
+  const poseRef = useRef(pose);
+  poseRef.current = pose;
   const [phase, setPhase] = useState<Phase>('idle');
   const [intended, setIntended] = useState<DeliveryType>(params.intended);
   const [markers, setMarkers] = useState<{ wallMs: number; intended: DeliveryType }[]>([]);
@@ -120,17 +124,30 @@ export function LiveScreen() {
     if (phase !== 'recording' && phase !== 'paused') return;
     const id = setInterval(() => {
       setElapsedMs(recordingMs());
-      const t = pose.peekTiming();
+      const t = poseRef.current.peekTiming();
       setLive({ fps: t.deliveredFps, dropped: t.droppedEstimate, below: t.belowRequested });
     }, 500);
     return () => clearInterval(id);
-  }, [phase, pose, recordingMs]);
+  }, [phase, recordingMs]);
 
   useEffect(() => {
     if (!focused) return;
-    const id = setInterval(() => setLiveFps(pose.readLiveFps()), 1000);
+    const id = setInterval(() => setLiveFps(poseRef.current.readLiveFps()), 1000);
     return () => clearInterval(id);
-  }, [focused, pose]);
+  }, [focused]);
+
+  // Stop-detection guard, see data/liveGuard.ts. Set while the camera screen opens, cleared once
+  // it has analysed a few frames, or straight away when tracking is off, or on leaving normally.
+  useEffect(() => {
+    if (trackingOn) liveGuard.set();
+    return () => {
+      liveGuard.clear();
+    };
+  }, [trackingOn]);
+  useEffect(() => {
+    // Working for a few frames, or failing in a way that reports itself, is not a freeze.
+    if (pose.diagnostics.analysedFrames >= 5 || pose.model === 'error' || cameraProblem) liveGuard.clear();
+  }, [pose.diagnostics.analysedFrames, pose.model, cameraProblem]);
 
   const onCameraError = useCallback((e: { code: string; message: string }) => {
     setCameraReady(false);
@@ -163,8 +180,9 @@ export function LiveScreen() {
         const haveTrack = res.frames.length > 0 && res.rotation !== null && res.upright !== null;
         let poseReason: string | null = null;
         if (!haveTrack) {
-          poseReason =
-            pose.model === 'error'
+          poseReason = !trackingOn
+            ? 'Pose tracking was off for this recording.'
+            : pose.model === 'error'
               ? `The pose model did not load: ${(pose.modelError ?? 'unknown error').split('\n')[0]}.`
               : res.rotation === null
                 ? 'The camera orientation was never confirmed, so no pose was recorded. Stand in view before recording.'
@@ -235,7 +253,7 @@ export function LiveScreen() {
         finishing.current = false;
       }
     },
-    [app, bowler, format?.maxFps, params, pose.model, pose.modelError],
+    [app, bowler, format?.maxFps, params, pose.model, pose.modelError, trackingOn],
   );
 
   const start = useCallback(() => {
@@ -357,7 +375,13 @@ export function LiveScreen() {
   const bowlerPerson = pose.people.find((p) => p.trackId === pose.bowlerId);
   const recording = phase === 'recording' || phase === 'paused';
 
-  const diagState = diagnosticState({
+  const diagState = !trackingOn
+    ? cameraProblem
+      ? 'CAMERA_ERROR'
+      : cameraReady
+        ? 'READY'
+        : 'INITIALIZING'
+    : diagnosticState({
     cameraError: !!cameraProblem,
     cameraReady,
     model: pose.model,
@@ -379,7 +403,13 @@ export function LiveScreen() {
         <>
           <IntendedPicker value={intended} onChange={setIntended} />
           <Button label="Start recording" icon="video" variant="danger" onPress={start} disabled={!!cameraProblem?.blocking} />
-          {pose.model !== 'ready' ? (
+          {!trackingOn ? (
+            <Txt variant="small" style={{ color: '#c9d3c4' }}>
+              {app.settings.poseAutoDisabled
+                ? 'Pose tracking was turned off because the camera screen stopped last time. Recording works without it. Turn it on again in Settings.'
+                : 'Pose tracking is off. You can record video. There will be no skeleton.'}
+            </Txt>
+          ) : pose.model !== 'ready' ? (
             <Txt variant="small" style={{ color: '#c9d3c4' }}>
               {pose.model === 'loading'
                 ? 'The pose model is still loading. You can record now. Anything filmed before it is ready has no skeleton.'
@@ -435,7 +465,7 @@ export function LiveScreen() {
             isActive={focused}
             video
             audio={false}
-            frameProcessor={pose.frameProcessor}
+            frameProcessor={trackingOn ? pose.frameProcessor : undefined}
             resizeMode="contain"
             outputOrientation="preview"
             videoStabilizationMode="off"
@@ -445,7 +475,7 @@ export function LiveScreen() {
             }}
             onError={onCameraError}
           />
-          {app.settings.showSkeleton ? (
+          {app.settings.showSkeleton && trackingOn ? (
             <SkeletonOverlay people={pose.people} bowlerId={pose.bowlerId} rect={rect} onSelect={pose.lockBowler} showLabels />
           ) : null}
 
@@ -466,7 +496,7 @@ export function LiveScreen() {
                     tone={live.below ? 'bad' : 'neutral'}
                   />
                   {recording && live.dropped > 0 ? <Chip label={`About ${live.dropped} frames dropped`} tone={live.below ? 'bad' : 'estimate'} /> : null}
-                  <Chip label={pose.model === 'ready' ? 'Pose model ready' : pose.model === 'loading' ? 'Loading pose model' : 'Pose model failed'} tone={pose.model === 'ready' ? 'good' : pose.model === 'error' ? 'bad' : 'neutral'} />
+                  <Chip label={!trackingOn ? 'Pose tracking off' : pose.model === 'ready' ? 'Pose model ready' : pose.model === 'loading' ? 'Loading pose model' : 'Pose model failed'} tone={!trackingOn ? 'neutral' : pose.model === 'ready' ? 'good' : pose.model === 'error' ? 'bad' : 'neutral'} />
                   {bowlerPerson ? <Chip label={`${visibleJoints(bowlerPerson.keypoints)} of 17 joints, confidence ${coreConfidence(bowlerPerson).toFixed(2)}`} tone="neutral" /> : null}
                 </View>
               </View>
@@ -502,7 +532,7 @@ export function LiveScreen() {
                   ['Camera', cameraProblem ? `Error ${cameraProblem.code}` : cameraReady ? 'Ready' : 'Starting'],
                   ['Resolution', `${format.videoWidth} x ${format.videoHeight}`],
                   ['Frame rate', `${params.fps} requested, ${liveFps === null ? 'measuring' : liveFps.toFixed(1) + ' arriving'}, camera max ${format.maxFps}`],
-                  ['Pose model', pose.model === 'ready' ? 'Loaded' : pose.model === 'loading' ? 'Loading' : 'Failed'],
+                  ['Pose model', !trackingOn ? 'Off (not loaded)' : pose.model === 'ready' ? 'Loaded' : pose.model === 'loading' ? 'Loading' : 'Failed'],
                   ['Model file', pose.diagnostics.modelPath ? pose.diagnostics.modelPath.split('/').slice(-2).join('/') : 'none'],
                   ['Inference', `${pose.diagnostics.analysedFrames} frames analysed, orientation ${pose.check.state}`],
                   ['Latency', pose.diagnostics.latencyMs === null ? 'none yet' : `${pose.diagnostics.latencyMs.toFixed(0)} ms per frame`],
@@ -521,14 +551,14 @@ export function LiveScreen() {
                 ))}
               </View>
             ) : null}
-            {pose.check.state === 'checking' && pose.model === 'ready' ? (
+            {trackingOn && pose.check.state === 'checking' && pose.model === 'ready' ? (
               <View style={styles.banner}>
                 <Txt variant="small" style={{ color: '#fff' }}>
                   {pose.check.note}
                 </Txt>
               </View>
             ) : null}
-            {pose.model === 'error' ? (
+            {trackingOn && pose.model === 'error' ? (
               <View style={[styles.banner, { backgroundColor: colors.red }]}>
                 <Txt variant="small" style={{ color: '#fff' }}>
                   The pose model could not load: {(pose.modelError ?? '').split('\n')[0]}. You can still record video. There will be no skeleton.

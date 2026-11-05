@@ -3,8 +3,10 @@ import * as Crypto from 'expo-crypto';
 import * as auth from '@/data/auth';
 import { buildExport, shareExport } from '@/data/exportData';
 import { expiredSessions } from '@/data/retention';
+import { applyLiveGuard } from '@/data/liveGuard';
 import {
   KEYS,
+  liveGuard,
   deleteAllSessionFiles,
   deleteSessionFiles,
   readJson,
@@ -103,7 +105,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
         readJson<Session[]>(KEYS.sessions, []),
         readJson<Settings>(KEYS.settings, DEFAULT_SETTINGS),
       ]);
-      const merged = { ...DEFAULT_SETTINGS, ...settings };
+      let merged = { ...DEFAULT_SETTINGS, ...settings };
+      // The camera screen did not finish last time: turn pose tracking off so it cannot happen again.
+      const stopped = await liveGuard.isSet();
+      if (stopped) {
+        merged = applyLiveGuard(merged, true);
+        await Promise.all([liveGuard.clear(), writeJson(KEYS.settings, merged)]);
+      }
       // Retention: sessions past the chosen age are removed, files included.
       const old = expiredSessions(sessions, merged.retentionDays, Date.now());
       old.forEach((s) => deleteSessionFiles(s.id));

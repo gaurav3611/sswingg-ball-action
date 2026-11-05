@@ -16,11 +16,15 @@ import type { PoseFrame, TrackedPerson } from '@/pose/types';
 const MODEL_SOURCE = require('../../assets/models/movenet_multipose_lightning_256.tflite');
 export const MODEL_ID = 'movenet-multipose-lightning-256-fp16';
 
-/** How often the pose model runs while recording or following, per second. */
-export const DEFAULT_ANALYSE_HZ = 10;
-/** While checking orientation the model runs four times per analysed frame, so less often. */
-const PROBE_HZ = 3;
-const PROBE_FRAMES = 3;
+/** How often the pose model runs, per second: while recording, and while only watching. */
+export const RECORD_HZ = 10;
+export const IDLE_HZ = 5;
+/**
+ * While checking the camera orientation the model runs once per call on a different turn of the
+ * frame each time, so no single call holds the camera thread for four inferences in a row.
+ */
+const PROBE_HZ = 8;
+const PROBE_FRAMES = 2;
 const PROBE_MIN_CONFIDENCE = 0.15;
 
 export interface OrientationCheck {
@@ -64,14 +68,14 @@ const mean = (xs: number[]) => (xs.length === 0 ? 0 : xs.reduce((a, b) => a + b,
  * learns which one shows an upright person.
  */
 export function usePoseCamera(args: {
-  analyseHz?: number;
+  /** False turns pose tracking off: no model is loaded and no frame is analysed. */
+  enabled: boolean;
   requestedFps: number;
   /** Turns already learned for each way the phone was held, keyed by the frame's orientation. */
   knownRotations: Record<string, Rotation>;
   onRotationLearned: (orientation: string, rotation: Rotation) => void;
 }) {
-  const analyseHz = args.analyseHz ?? DEFAULT_ANALYSE_HZ;
-  const plugin = useModel(MODEL_SOURCE);
+  const plugin = useModel(MODEL_SOURCE, args.enabled);
   const model = plugin.state === 'loaded' ? plugin.model : undefined;
   // Vision Camera 4 cannot use a Nitro object in a worklet directly, so it is boxed first.
   const boxed = useMemo(() => (model ? NitroModules.box(model) : undefined), [model]);
@@ -83,6 +87,8 @@ export function usePoseCamera(args: {
   // Counts every frame all the time, so the real camera frame rate can be shown before recording.
   const viewCounters = useSharedValue<FrameCounters>(emptyCounters());
   const rotationSV = useSharedValue(0);
+  const hzSV = useSharedValue(IDLE_HZ);
+  const probeIdx = useSharedValue(0);
   const probing = useSharedValue(true);
   const segments = useRef<FrameCounters[]>([]);
 
@@ -98,7 +104,7 @@ export function usePoseCamera(args: {
   const orientationRef = useRef<string | null>(null);
   const rotationRef = useRef<Rotation | null>(null);
   const uprightRef = useRef<Size | null>(null);
-  const trials = useRef<Trial[][]>([]);
+  const trials = useRef<Record<number, Trial[]>>({ 0: [], 90: [], 180: [], 270: [] });
   const known = useRef(args.knownRotations);
   known.current = args.knownRotations;
   const learned = useRef(args.onRotationLearned);
@@ -106,7 +112,7 @@ export function usePoseCamera(args: {
   const errors = useRef(0);
 
   const beginProbe = useCallback(() => {
-    trials.current = [];
+    trials.current = { 0: [], 90: [], 180: [], 270: [] };
     probing.value = true;
     rotationRef.current = null;
     engine.reset();
@@ -134,15 +140,15 @@ export function usePoseCamera(args: {
         }
 
         if (rotationRef.current === null) {
-          const round: Trial[] = rotations.map((rotation, i) => {
-            const best = decodeMultiPose(tensors[i]!, 0.05).sort((a, b) => b.score - a.score)[0];
-            return { rotation: rotation as Rotation, personScore: best?.score ?? 0, upright: best ? uprightScore(best.keypoints) : 0 };
-          });
-          trials.current = [...trials.current, round].slice(-PROBE_FRAMES);
-          if (trials.current.length < PROBE_FRAMES) return;
-          const merged = ROTATIONS.map((rotation) => {
-            const col = trials.current.map((r) => r.find((t) => t.rotation === rotation)!);
-            return { rotation, personScore: mean(col.map((c) => c.personScore)), upright: mean(col.map((c) => c.upright)) };
+          // One rotation arrives per call. Keep the last few readings of each.
+          const rotation = rotations[0] as Rotation;
+          const best = decodeMultiPose(tensors[0]!, 0.05).sort((x, y) => y.score - x.score)[0];
+          const list = trials.current[rotation] ?? [];
+          trials.current[rotation] = [...list, { rotation, personScore: best?.score ?? 0, upright: best ? uprightScore(best.keypoints) : 0 }].slice(-PROBE_FRAMES);
+          if (ROTATIONS.some((r) => (trials.current[r]?.length ?? 0) < PROBE_FRAMES)) return;
+          const merged = ROTATIONS.map((r) => {
+            const col = trials.current[r]!;
+            return { rotation: r, personScore: mean(col.map((c) => c.personScore)), upright: mean(col.map((c) => c.upright)) };
           });
           const choice = chooseRotation(merged);
           if (choice && choice.confidence >= PROBE_MIN_CONFIDENCE) {
@@ -154,6 +160,7 @@ export function usePoseCamera(args: {
             setCheck({ state: 'ready', note: `Camera orientation found (confidence ${choice.confidence.toFixed(2)}).`, rotation: choice.rotation });
           } else {
             setCheck({ state: 'checking', note: 'No one found yet. Stand in view with your whole body visible.', rotation: null });
+            trials.current = { 0: [], 90: [], 180: [], 270: [] };
           }
           return;
         }
@@ -189,11 +196,16 @@ export function usePoseCamera(args: {
       viewCounters.value = addFrame(viewCounters.value, frame.timestamp);
       if (counting.value) counters.value = addFrame(counters.value, frame.timestamp);
       if (boxed == null) return;
-      runAtTargetFps(probing.value ? PROBE_HZ : analyseHz, () => {
+      runAtTargetFps(probing.value ? PROBE_HZ : hzSV.value, () => {
         'worklet';
         const started = Date.now();
         const tflite = boxed.unbox();
-        const rotations = probing.value ? [0, 90, 180, 270] : [rotationSV.value];
+        let turn = rotationSV.value;
+        if (probing.value) {
+          turn = [0, 90, 180, 270][probeIdx.value % 4]!;
+          probeIdx.value = probeIdx.value + 1;
+        }
+        const rotations = [turn];
         const outputs: number[][] = [];
         for (const r of rotations) {
           // The whole frame is used: an explicit crop stops the plugin from centre-cropping to a square.
@@ -212,7 +224,7 @@ export function usePoseCamera(args: {
         onTensors(outputs, rotations, frame.timestamp, frame.width, frame.height, frame.orientation, Date.now() - started);
       });
     },
-    [boxed, resize, analyseHz, onTensors],
+    [boxed, resize, onTensors],
   );
 
   // Frames in the preview before the model has loaded are not analysed.
@@ -224,8 +236,9 @@ export function usePoseCamera(args: {
     segments.current = [];
     counters.value = emptyCounters();
     counting.value = true;
+    hzSV.value = RECORD_HZ;
     engine.startRecording();
-  }, [counters, counting, engine]);
+  }, [counters, counting, engine, hzSV]);
 
   const pauseRecording = useCallback(() => {
     counting.value = false;
@@ -241,11 +254,12 @@ export function usePoseCamera(args: {
 
   const stopRecording = useCallback((): RecordingResult => {
     counting.value = false;
+    hzSV.value = IDLE_HZ;
     segments.current.push(counters.value);
     const timing = summariseSegments(segments.current, args.requestedFps);
     const { frames, bowlerCoverage } = engine.stopRecording();
     return { frames, bowlerCoverage, timing, rotation: rotationRef.current, upright: uprightRef.current };
-  }, [args.requestedFps, counters, counting, engine]);
+  }, [args.requestedFps, counters, counting, engine, hzSV]);
 
   /** The frame rate delivered so far in this recording, for showing while it runs. */
   const peekTiming = useCallback(

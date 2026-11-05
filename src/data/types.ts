@@ -137,6 +137,13 @@ export interface Settings {
    * check, for each way the phone has been held. Keyed by the camera frame's orientation name.
    */
   poseRotations: Record<string, Rotation>;
+  /**
+   * Whether the camera screen finds and follows the bowler. Off records plain video with no
+   * model running. It is turned off by itself if the camera screen stopped last time.
+   */
+  poseTracking: boolean;
+  /** True when poseTracking was turned off by the app, not by the person, so Settings can say why. */
+  poseAutoDisabled: boolean;
   /** Consent to share a bowler's sessions with a coach. Sharing itself is not built yet. */
   coachSharingConsent: boolean;
 }
@@ -146,5 +153,7 @@ export const DEFAULT_SETTINGS: Settings = {
   showSkeleton: true,
   retentionDays: null,
   poseRotations: {},
+  poseTracking: true,
+  poseAutoDisabled: false,
   coachSharingConsent: false,
 };

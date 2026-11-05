@@ -156,3 +156,34 @@ describe('components', () => {
     expect(toJSON()).toBeTruthy();
   });
 });
+
+describe('skeleton drawing cost', () => {
+  const { skeletonPaths } = require('@/components/skeleton-overlay');
+  const kps = Array.from({ length: 17 }, (_, i) => ({ x: 0.3 + (i % 4) * 0.05, y: 0.1 + i * 0.05, score: 0.8 }));
+  const rect = { x: 0, y: 0, width: 300, height: 400 };
+
+  it('joins every bone and joint into a few path strings', () => {
+    const { bones, joints } = skeletonPaths(kps, rect, 4);
+    // 16 bones become at most 3 strings, 17 joints at most 3
+    expect(Object.values(bones).filter(Boolean).length).toBeLessThanOrEqual(3);
+    expect(Object.values(joints).filter(Boolean).length).toBeLessThanOrEqual(3);
+    const allBones = Object.values(bones).join('');
+    expect((allBones.match(/M/g) ?? []).length).toBe(16);
+    expect(((Object.values(joints).join('')).match(/M/g) ?? []).length).toBe(17);
+  });
+
+  it('leaves out bones and joints the model is not sure of', () => {
+    const weak = kps.map((k, i) => (i === 9 ? { ...k, score: 0.1 } : k)); // left wrist
+    const { bones, joints } = skeletonPaths(weak, rect, 4);
+    expect(((Object.values(joints).join('')).match(/M/g) ?? []).length).toBe(16);
+    expect((Object.values(bones).join('').match(/M/g) ?? []).length).toBe(15); // the elbow to wrist bone goes too
+  });
+
+  it('draws at most three people however many are in view', async () => {
+    const { SkeletonOverlay } = require('@/components/skeleton-overlay');
+    const people = Array.from({ length: 6 }, (_, i) => ({ trackId: i + 1, score: 0.9, box: { x: i * 0.1, y: 0.1, w: 0.1, h: 0.5 }, keypoints: kps }));
+    await render(<SkeletonOverlay people={people} bowlerId={4} rect={rect} onSelect={() => {}} showLabels />);
+    expect(screen.getByText('Bowler, 17 of 17 joints')).toBeTruthy(); // the bowler is drawn even though the largest others come after
+    expect(screen.getAllByText(/tap to follow/)).toHaveLength(2);
+  });
+});
