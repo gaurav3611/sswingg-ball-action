@@ -36,7 +36,7 @@ export function SessionRow({ session, bowler }: { session: Session; bowler?: Bow
           {TYPE_LABEL[session.sessionType]}, {formatDuration(session.capture.durationMs)}, {n} {n === 1 ? 'delivery' : 'deliveries'} marked
         </Txt>
         <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
-          <Chip label={`${session.capture.deliveredFps ? Math.round(session.capture.deliveredFps) : session.capture.requestedFps} fps`} tone="neutral" />
+          <Chip label={session.capture.source === 'imported' ? 'Imported video' : `${session.capture.deliveredFps ? Math.round(session.capture.deliveredFps) : session.capture.requestedFps} fps`} tone="neutral" />
           <Chip label={pose} tone={session.pose.status === 'ok' ? 'estimate' : 'neutral'} />
         </View>
       </View>

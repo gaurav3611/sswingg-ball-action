@@ -15,6 +15,7 @@ Built from `SSwinGG_Ball_Action_Master_App_Specification.pdf`. This is **Phase 1
 | Frame rates 30, 60, 120, 240 offered only where the phone reports them; delivered rate counted and stored | Working |
 | Session storage, history, replay, slow motion (0.25x, 0.5x), frame step, clip ranges, retake | Working |
 | Settings and privacy: retention, export, delete session, delete everything, one-video-at-a-time share | Working |
+| Analyse a video from the phone: frame-by-frame skeleton and angles, no camera needed | Experimental |
 | Bowler tracking and skeleton overlay (MoveNet, 17 points, stable track ids, tap to choose the bowler) | Experimental |
 | Joint angle estimates with confidence and reason when unavailable | Experimental |
 | Phase detection, biomechanics, run-up, speed, ball tracking, classification, coaching, coach access | Not built (Phases 3 to 6) |

@@ -29,6 +29,12 @@ export default function Analyse() {
       </Card>
 
       <Card>
+        <SectionTitle icon="download">Analyse a video</SectionTitle>
+        <Txt variant="body">Already have a video of a bowler on this phone? Pick it and the app finds the bowler, draws the skeleton and shows the joint angles, frame by frame. No camera is used.</Txt>
+        <Button label="Choose a video to analyse" icon="video" variant="secondary" onPress={() => router.push(app.activeBowler ? '/import' : '/bowler/edit')} />
+      </Card>
+
+      <Card>
         <SectionTitle icon="activity">Analysis tools</SectionTitle>
         <Txt variant="small" tone="muted">
           Tools that are not built yet say so. None of them show sample numbers.

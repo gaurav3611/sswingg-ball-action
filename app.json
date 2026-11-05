@@ -2,7 +2,7 @@
   "expo": {
     "name": "SSwinGG Ball Action",
     "slug": "sswingg-ball-action",
-    "version": "0.1.3",
+    "version": "0.1.4",
     "scheme": "sswingg-ball-action",
     "orientation": "default",
     "userInterfaceStyle": "light",
@@ -18,7 +18,7 @@
         "backgroundColor": "#1e5b3a",
         "foregroundImage": "./assets/android-icon-foreground.png"
       },
-      "versionCode": 4
+      "versionCode": 5
     },
     "web": {
       "bundler": "metro",
@@ -53,6 +53,14 @@
           "backgroundColor": "#f7f5ee",
           "image": "./assets/splash-icon.png",
           "imageWidth": 160
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": false,
+          "cameraPermission": false,
+          "microphonePermission": false
         }
       ]
     ]

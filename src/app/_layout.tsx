@@ -54,6 +54,7 @@ function Routes() {
         <Stack.Protected guard={signedIn}>
           <Stack.Screen name="(tabs)" />
           <Stack.Screen name="bowler/edit" />
+          <Stack.Screen name="import" />
           <Stack.Screen name="session/new" />
           <Stack.Screen name="session/setup" />
           <Stack.Screen name="session/live" options={{ gestureEnabled: false }} />

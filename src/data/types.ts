@@ -76,6 +76,8 @@ export interface ClipRange {
 
 /** What the camera was set to and what it really delivered. Both are kept, side by side. */
 export interface CaptureInfo {
+  /** Where the video came from. Missing means recorded with the camera. */
+  source?: 'camera' | 'imported';
   requestedFps: number;
   /** Frames per second that really arrived at the camera's frame processor. Null if unknown. */
   deliveredFps: number | null;

@@ -223,12 +223,18 @@ export default function SessionScreen() {
       </Card>
 
       <Card>
-        <SectionTitle icon="gauge">How this was recorded</SectionTitle>
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.lg }}>
-          <Stat value={String(c.requestedFps)} unit="fps" caption="Requested" />
-          <Stat value={c.deliveredFps === null ? '--' : c.deliveredFps.toFixed(1)} unit="fps" caption="Delivered (counted)" />
-          <Stat value={String(c.formatMaxFps)} unit="fps" caption="Camera mode maximum" />
-        </View>
+        <SectionTitle icon="gauge">{c.source === 'imported' ? 'About this video' : 'How this was recorded'}</SectionTitle>
+        {c.source === 'imported' ? (
+          <Txt variant="small" tone="muted">
+            Imported from this phone's storage. The frame rate it was filmed at is not read. Frame steps use the rate the video file reports. The skeleton was read frame by frame from the file, so it lines up with the video.
+          </Txt>
+        ) : (
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.lg }}>
+            <Stat value={String(c.requestedFps)} unit="fps" caption="Requested" />
+            <Stat value={c.deliveredFps === null ? '--' : c.deliveredFps.toFixed(1)} unit="fps" caption="Delivered (counted)" />
+            <Stat value={String(c.formatMaxFps)} unit="fps" caption="Camera mode maximum" />
+          </View>
+        )}
         {c.belowRequested ? (
           <Txt variant="small" tone="red" accessibilityRole="alert">
             The phone delivered fewer frames than requested. Slow motion and frame steps use the rate that actually arrived.
@@ -236,9 +242,13 @@ export default function SessionScreen() {
         ) : null}
         <FactRow k="Resolution" v={`${c.widthPx} by ${c.heightPx} px`} kind="Measured" />
         <FactRow k="Duration" v={formatDuration(c.durationMs)} kind="Measured" />
-        <FactRow k="Frames counted" v={String(c.frames)} kind="Measured" />
-        <FactRow k="Frames dropped" v={c.droppedEstimate === null ? 'Not known' : `About ${c.droppedEstimate}`} kind="Estimated" />
-        <FactRow k="Longest gap between frames" v={c.longestGapMs === null ? 'Not known' : `${c.longestGapMs} ms`} kind="Measured" />
+        {c.source === 'imported' ? null : (
+          <>
+            <FactRow k="Frames counted" v={String(c.frames)} kind="Measured" />
+            <FactRow k="Frames dropped" v={c.droppedEstimate === null ? 'Not known' : `About ${c.droppedEstimate}`} kind="Estimated" />
+            <FactRow k="Longest gap between frames" v={c.longestGapMs === null ? 'Not known' : `${c.longestGapMs} ms`} kind="Measured" />
+          </>
+        )}
         <FactRow k="Camera view" v={label(c.cameraView)} kind="Set by you" />
         <FactRow k="Distance calibration" v="None. Distances and speeds are not measured." kind="Unavailable" />
         <FactRow
@@ -255,13 +265,17 @@ export default function SessionScreen() {
           <Button label="-50 ms" variant="secondary" onPress={() => nudge(-50)} style={{ minWidth: 80 }} />
           <Button label="+50 ms" variant="secondary" onPress={() => nudge(50)} style={{ minWidth: 80 }} />
         </View>
-        <FactRow k="Device" v={`${c.deviceModel}, ${c.osVersion}`} kind="Measured" />
-        <FactRow k="App version" v={c.appVersion} kind="Measured" />
+        {c.source === 'imported' ? null : (
+          <>
+            <FactRow k="Device" v={`${c.deviceModel}, ${c.osVersion}`} kind="Measured" />
+            <FactRow k="App version" v={c.appVersion} kind="Measured" />
+          </>
+        )}
       </Card>
 
       <View style={{ gap: space.sm }}>
         <Button label="Share this video" icon="download" variant="secondary" onPress={shareVideo} disabled={!session.videoUri} />
-        <Button label="Retake" icon="rotate-ccw" variant="secondary" onPress={() => remove(true)} />
+        {c.source === 'imported' ? null : <Button label="Retake" icon="rotate-ccw" variant="secondary" onPress={() => remove(true)} />}
         <Button label="Delete this session" icon="trash" variant="danger" onPress={() => remove(false)} />
       </View>
     </Screen>

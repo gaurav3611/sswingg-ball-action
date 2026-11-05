@@ -3,7 +3,10 @@ import { NitroModules } from 'react-native-nitro-modules';
 import { runAtTargetFps, useFrameProcessor } from 'react-native-vision-camera';
 import { useRunOnJS, useSharedValue } from 'react-native-worklets-core';
 import { useResizePlugin } from 'vision-camera-resize-plugin';
+import { MODEL_ID, MODEL_SOURCE } from './modelSource';
 import { useModel } from './useModel';
+
+export { MODEL_ID };
 import { ema, landmarkSummary } from '@/capture/diagnostics';
 import { addFrame, emptyCounters, summariseSegments, summariseTiming, type FrameCounters, type TimingSummary } from '@/capture/timing';
 import { decodeMultiPose, MOVENET_INPUT_SIZE } from '@/pose/decode';
@@ -12,9 +15,6 @@ import { ROTATIONS, chooseRotation, uprightScore, uprightSize, type Rotation, ty
 import type { TrackingStatus } from '@/pose/status';
 import type { PoseFrame, TrackedPerson } from '@/pose/types';
 
-/** The model file bundled with the app. See assets/models/README.md for where it comes from. */
-const MODEL_SOURCE = require('../../assets/models/movenet_multipose_lightning_256.tflite');
-export const MODEL_ID = 'movenet-multipose-lightning-256-fp16';
 
 /** How often the pose model runs, per second: while recording, and while only watching. */
 export const RECORD_HZ = 10;
