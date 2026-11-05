@@ -4,7 +4,8 @@ import { runAtTargetFps, useFrameProcessor } from 'react-native-vision-camera';
 import { useRunOnJS, useSharedValue } from 'react-native-worklets-core';
 import { useResizePlugin } from 'vision-camera-resize-plugin';
 import { useModel } from './useModel';
-import { addFrame, emptyCounters, summariseSegments, type FrameCounters, type TimingSummary } from '@/capture/timing';
+import { ema, landmarkSummary } from '@/capture/diagnostics';
+import { addFrame, emptyCounters, summariseSegments, summariseTiming, type FrameCounters, type TimingSummary } from '@/capture/timing';
 import { decodeMultiPose, MOVENET_INPUT_SIZE } from '@/pose/decode';
 import { PoseEngine } from '@/pose/engine';
 import { ROTATIONS, chooseRotation, uprightScore, uprightSize, type Rotation, type Size } from '@/pose/geometry';
@@ -27,6 +28,19 @@ export interface OrientationCheck {
   /** Shown to the user while checking. */
   note: string;
   rotation: Rotation | null;
+}
+
+/** What the diagnostics panel shows about the pose model, updated as frames are analysed. */
+export interface PoseDiagnostics {
+  modelPath: string | null;
+  /** Analysed frames that have come back from the model since the screen opened. */
+  analysedFrames: number;
+  /** Average time the model took for one frame, in ms. */
+  latencyMs: number | null;
+  /** Points of the bowler (or the most visible person) that the model is at least 0.3 sure of. */
+  landmarks: number;
+  meanConfidence: number | null;
+  lastError: string | null;
 }
 
 export interface RecordingResult {
@@ -66,6 +80,8 @@ export function usePoseCamera(args: {
   const engine = useRef(new PoseEngine({ autoLock: true })).current;
   const counters = useSharedValue<FrameCounters>(emptyCounters());
   const counting = useSharedValue(false);
+  // Counts every frame all the time, so the real camera frame rate can be shown before recording.
+  const viewCounters = useSharedValue<FrameCounters>(emptyCounters());
   const rotationSV = useSharedValue(0);
   const probing = useSharedValue(true);
   const segments = useRef<FrameCounters[]>([]);
@@ -74,6 +90,9 @@ export function usePoseCamera(args: {
   const [bowlerId, setBowlerId] = useState<number | null>(null);
   const [status, setStatus] = useState<TrackingStatus>({ state: 'searching', message: 'Starting.' });
   const [upright, setUpright] = useState<Size | null>(null);
+  const [diag, setDiag] = useState<PoseDiagnostics>({ modelPath: null, analysedFrames: 0, latencyMs: null, landmarks: 0, meanConfidence: null, lastError: null });
+  const latency = useRef<number | null>(null);
+  const analysed = useRef(0);
   const [check, setCheck] = useState<OrientationCheck>({ state: 'checking', note: 'Checking the camera orientation. Stand in view.', rotation: null });
 
   const orientationRef = useRef<string | null>(null);
@@ -96,7 +115,7 @@ export function usePoseCamera(args: {
 
   // Runs on the JavaScript thread, called from the frame processor.
   const onTensors = useRunOnJS(
-    (tensors: number[][], rotations: number[], ts: number, width: number, height: number, orientation: string) => {
+    (tensors: number[][], rotations: number[], ts: number, width: number, height: number, orientation: string, tookMs: number) => {
       try {
         // The phone was turned: use what is known for the new orientation, or check again.
         if (orientationRef.current !== orientation) {
@@ -145,12 +164,19 @@ export function usePoseCamera(args: {
           setUpright(size);
         }
         const result = engine.ingest(tensors[0]!, ts);
+        latency.current = ema(latency.current, tookMs);
+        analysed.current++;
+        const shown = result.people.find((p) => p.trackId === result.bowlerId) ?? result.people[0];
+        const lm = landmarkSummary(shown ? shown.keypoints.map((k) => k.score) : []);
+        setDiag((d) => ({ ...d, analysedFrames: analysed.current, latencyMs: latency.current, landmarks: lm.count, meanConfidence: lm.meanScore }));
         setPeople(result.people);
         setBowlerId(result.bowlerId);
         setStatus(result.status);
       } catch (e) {
         // A bad frame is skipped. Show the problem only if it keeps happening.
         errors.current++;
+        const message = e instanceof Error ? e.message : String(e);
+        setDiag((d) => ({ ...d, lastError: message }));
         if (errors.current === 5) setStatus({ state: 'lost', message: 'The pose model returned unreadable results.' });
       }
     },
@@ -160,10 +186,12 @@ export function usePoseCamera(args: {
   const frameProcessor = useFrameProcessor(
     (frame) => {
       'worklet';
+      viewCounters.value = addFrame(viewCounters.value, frame.timestamp);
       if (counting.value) counters.value = addFrame(counters.value, frame.timestamp);
       if (boxed == null) return;
       runAtTargetFps(probing.value ? PROBE_HZ : analyseHz, () => {
         'worklet';
+        const started = Date.now();
         const tflite = boxed.unbox();
         const rotations = probing.value ? [0, 90, 180, 270] : [rotationSV.value];
         const outputs: number[][] = [];
@@ -181,7 +209,7 @@ export function usePoseCamera(args: {
           const result = tflite.runSync([input]);
           outputs.push(Array.from(new Float32Array(result[0]!)));
         }
-        onTensors(outputs, rotations, frame.timestamp, frame.width, frame.height, frame.orientation);
+        onTensors(outputs, rotations, frame.timestamp, frame.width, frame.height, frame.orientation, Date.now() - started);
       });
     },
     [boxed, resize, analyseHz, onTensors],
@@ -225,6 +253,13 @@ export function usePoseCamera(args: {
     [args.requestedFps, counters],
   );
 
+  /** Frames per second that arrived since the last call. Call about once a second. */
+  const readLiveFps = useCallback((): number | null => {
+    const c = viewCounters.value;
+    viewCounters.value = emptyCounters();
+    return summariseTiming(c, 30).deliveredFps;
+  }, [viewCounters]);
+
   const lockBowler = useCallback(
     (id: number | null) => {
       engine.lockBowler(id);
@@ -248,6 +283,8 @@ export function usePoseCamera(args: {
     resumeRecording,
     stopRecording,
     peekTiming,
+    readLiveFps,
     lockBowler,
+    diagnostics: { ...diag, modelPath: plugin.path },
   };
 }

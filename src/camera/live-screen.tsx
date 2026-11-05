@@ -11,6 +11,8 @@ import { SkeletonOverlay, visibleJoints } from '@/components/skeleton-overlay';
 import { Button, Chip, EmptyState, ErrorState, IconButton, Loading, Txt } from '@/components/ui';
 import { Screen } from '@/components/screen';
 import { bestFormatFor } from '@/capture/capabilities';
+import { describeCameraError, type CameraProblem } from '@/capture/cameraErrors';
+import { diagnosticState } from '@/capture/diagnostics';
 import { MODEL_ID, usePoseCamera, type RecordingResult } from './usePoseCamera';
 import { encodePoseTrack } from '@/data/poseFile';
 import { parseSessionParams } from '@/data/sessionParams';
@@ -89,6 +91,14 @@ export function LiveScreen() {
   const [elapsedMs, setElapsedMs] = useState(0);
   const [live, setLive] = useState<{ fps: number | null; dropped: number; below: boolean }>({ fps: null, dropped: 0, below: false });
   const [problem, setProblem] = useState<string | null>(null);
+  const [cameraReady, setCameraReady] = useState(false);
+  const [cameraProblem, setCameraProblem] = useState<(CameraProblem & { code: string; raw: string }) | null>(null);
+  const [retryKey, setRetryKey] = useState(0);
+  const [showDiag, setShowDiag] = useState(false);
+  const [liveFps, setLiveFps] = useState<number | null>(null);
+  // A camera that Android reports as disabled is sometimes only busy for a moment, for example
+  // straight after leaving and re-entering this screen. It is retried once on its own.
+  const autoRetried = useRef(false);
   const [box, setBox] = useState({ width: 0, height: 0 });
 
   // Wall-clock timeline of the recording, minus time spent paused. Delivery marks use it.
@@ -115,6 +125,27 @@ export function LiveScreen() {
     }, 500);
     return () => clearInterval(id);
   }, [phase, pose, recordingMs]);
+
+  useEffect(() => {
+    if (!focused) return;
+    const id = setInterval(() => setLiveFps(pose.readLiveFps()), 1000);
+    return () => clearInterval(id);
+  }, [focused, pose]);
+
+  const onCameraError = useCallback((e: { code: string; message: string }) => {
+    setCameraReady(false);
+    setCameraProblem({ ...describeCameraError(e.code, e.message), code: e.code, raw: e.message });
+    if (e.code === 'system/camera-is-restricted' && !autoRetried.current) {
+      autoRetried.current = true;
+      setTimeout(() => setRetryKey((k) => k + 1), 1500);
+    }
+  }, []);
+
+  const retryCamera = useCallback(() => {
+    setCameraProblem(null);
+    setCameraReady(false);
+    setRetryKey((k) => k + 1);
+  }, []);
 
   const finish = useCallback(
     async (video: VideoFile) => {
@@ -326,13 +357,35 @@ export function LiveScreen() {
   const bowlerPerson = pose.people.find((p) => p.trackId === pose.bowlerId);
   const recording = phase === 'recording' || phase === 'paused';
 
+  const diagState = diagnosticState({
+    cameraError: !!cameraProblem,
+    cameraReady,
+    model: pose.model,
+    orientationReady: pose.check.state === 'ready',
+    analysedFrames: pose.diagnostics.analysedFrames,
+    peopleInView: pose.people.length,
+    tracking: pose.status.state,
+  });
+  const lastError =
+    (cameraProblem ? `${cameraProblem.code}: ${cameraProblem.raw}` : null) ??
+    (pose.modelError ? pose.modelError.split('\n')[0] : null) ??
+    pose.diagnostics.lastError ??
+    problem ??
+    'none';
+
   const controls = (
     <View style={[styles.panel, landscape ? styles.panelSide : styles.panelBottom]}>
       {phase === 'idle' ? (
         <>
           <IntendedPicker value={intended} onChange={setIntended} />
-          <Button label="Start recording" icon="video" variant="danger" onPress={start} disabled={pose.model === 'loading'} />
-          {pose.model === 'loading' ? <Loading label="Loading the pose model" /> : null}
+          <Button label="Start recording" icon="video" variant="danger" onPress={start} disabled={!!cameraProblem?.blocking} />
+          {pose.model !== 'ready' ? (
+            <Txt variant="small" style={{ color: '#c9d3c4' }}>
+              {pose.model === 'loading'
+                ? 'The pose model is still loading. You can record now. Anything filmed before it is ready has no skeleton.'
+                : 'The pose model failed, so there will be no skeleton. You can still record video.'}
+            </Txt>
+          ) : null}
         </>
       ) : (
         <View style={{ gap: space.sm }}>
@@ -373,6 +426,7 @@ export function LiveScreen() {
       <View style={[styles.stage, landscape && { flexDirection: 'row' }]}>
         <View style={{ flex: 1 }} onLayout={(e: LayoutChangeEvent) => setBox(e.nativeEvent.layout)}>
           <Camera
+            key={retryKey}
             ref={camera}
             style={StyleSheet.absoluteFill}
             device={device}
@@ -385,7 +439,11 @@ export function LiveScreen() {
             resizeMode="contain"
             outputOrientation="preview"
             videoStabilizationMode="off"
-            onError={(e) => setProblem(`Camera error: ${e.message}`)}
+            onInitialized={() => {
+              setCameraReady(true);
+              setCameraProblem(null);
+            }}
+            onError={onCameraError}
           />
           {app.settings.showSkeleton ? (
             <SkeletonOverlay people={pose.people} bowlerId={pose.bowlerId} rect={rect} onSelect={pose.lockBowler} showLabels />
@@ -412,8 +470,58 @@ export function LiveScreen() {
                   {bowlerPerson ? <Chip label={`${visibleJoints(bowlerPerson.keypoints)} of 17 joints, confidence ${coreConfidence(bowlerPerson).toFixed(2)}`} tone="neutral" /> : null}
                 </View>
               </View>
+              <IconButton icon="info" label={showDiag ? 'Hide diagnostics' : 'Show diagnostics'} tone="stage" onPress={() => setShowDiag((v) => !v)} />
             </View>
-            {pose.check.state === 'checking' ? (
+            {cameraProblem ? (
+              <View style={[styles.banner, { backgroundColor: 'rgba(14,22,17,0.95)', gap: space.sm }]} accessibilityRole="alert">
+                <Txt variant="heading" style={{ color: '#ffb4a8' }}>
+                  {cameraProblem.title}
+                </Txt>
+                <Txt variant="small" style={{ color: '#ffffff' }}>
+                  {cameraProblem.detail}
+                </Txt>
+                {cameraProblem.steps.map((st, i) => (
+                  <Txt key={st} variant="small" style={{ color: '#c9d3c4' }}>
+                    {i + 1}. {st}
+                  </Txt>
+                ))}
+                <View style={{ flexDirection: 'row', gap: space.sm, flexWrap: 'wrap' }}>
+                  {cameraProblem.retry ? <Button label="Try again" variant="secondary" onPress={retryCamera} /> : null}
+                  {cameraProblem.settings ? <Button label="Open phone settings" variant="secondary" onPress={() => Linking.openSettings()} /> : null}
+                </View>
+              </View>
+            ) : null}
+            {showDiag ? (
+              <View style={[styles.banner, { gap: 4 }]}>
+                <Txt variant="label" style={{ color: '#c9d3c4' }}>
+                  Diagnostics
+                </Txt>
+                {[
+                  ['State', diagState],
+                  ['Camera permission', hasPermission ? 'Allowed' : 'Denied'],
+                  ['Camera', cameraProblem ? `Error ${cameraProblem.code}` : cameraReady ? 'Ready' : 'Starting'],
+                  ['Resolution', `${format.videoWidth} x ${format.videoHeight}`],
+                  ['Frame rate', `${params.fps} requested, ${liveFps === null ? 'measuring' : liveFps.toFixed(1) + ' arriving'}, camera max ${format.maxFps}`],
+                  ['Pose model', pose.model === 'ready' ? 'Loaded' : pose.model === 'loading' ? 'Loading' : 'Failed'],
+                  ['Model file', pose.diagnostics.modelPath ? pose.diagnostics.modelPath.split('/').slice(-2).join('/') : 'none'],
+                  ['Inference', `${pose.diagnostics.analysedFrames} frames analysed, orientation ${pose.check.state}`],
+                  ['Latency', pose.diagnostics.latencyMs === null ? 'none yet' : `${pose.diagnostics.latencyMs.toFixed(0)} ms per frame`],
+                  ['Landmarks', `${pose.diagnostics.landmarks} of 17 sure`],
+                  ['Mean confidence', pose.diagnostics.meanConfidence === null ? 'none' : pose.diagnostics.meanConfidence.toFixed(2)],
+                  ['Last error', lastError],
+                ].map(([k, v]) => (
+                  <View key={k} style={{ flexDirection: 'row', gap: space.sm }}>
+                    <Txt variant="small" style={{ color: '#9fb0a4', width: 118 }}>
+                      {k}
+                    </Txt>
+                    <Txt variant="small" style={{ color: '#ffffff', flex: 1 }}>
+                      {v}
+                    </Txt>
+                  </View>
+                ))}
+              </View>
+            ) : null}
+            {pose.check.state === 'checking' && pose.model === 'ready' ? (
               <View style={styles.banner}>
                 <Txt variant="small" style={{ color: '#fff' }}>
                   {pose.check.note}

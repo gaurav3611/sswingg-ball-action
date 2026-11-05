@@ -2,7 +2,7 @@
   "expo": {
     "name": "SSwinGG Ball Action",
     "slug": "sswingg-ball-action",
-    "version": "0.1.1",
+    "version": "0.1.2",
     "scheme": "sswingg-ball-action",
     "orientation": "default",
     "userInterfaceStyle": "light",
@@ -18,7 +18,7 @@
         "backgroundColor": "#1e5b3a",
         "foregroundImage": "./assets/android-icon-foreground.png"
       },
-      "versionCode": 2
+      "versionCode": 3
     },
     "web": {
       "bundler": "metro",
