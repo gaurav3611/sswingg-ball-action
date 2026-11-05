@@ -1,25 +1,48 @@
 {
   "expo": {
-    "name": "sswingg-ball-action",
+    "name": "SSwinGG Ball Action",
     "slug": "sswingg-ball-action",
-    "version": "1.0.0",
-    "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "version": "0.1.0",
+    "scheme": "sswingg-ball-action",
+    "orientation": "default",
     "userInterfaceStyle": "light",
+    "icon": "./assets/icon.png",
+    "backgroundColor": "#f7f5ee",
     "ios": {
+      "bundleIdentifier": "com.sswingg.ballaction",
       "supportsTablet": true
     },
     "android": {
+      "package": "com.sswingg.ballaction",
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundImage": "./assets/android-icon-background.png",
-        "monochromeImage": "./assets/android-icon-monochrome.png"
-      },
-      "predictiveBackGestureEnabled": false
+        "backgroundColor": "#1e5b3a",
+        "foregroundImage": "./assets/android-icon-foreground.png"
+      }
     },
     "web": {
-      "favicon": "./assets/favicon.png"
-    }
+      "bundler": "metro",
+      "output": "single"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-video",
+      [
+        "react-native-vision-camera",
+        {
+          "cameraPermissionText": "SSwinGG Ball Action films your bowling session and finds your body position in it. Video stays on this phone.",
+          "enableMicrophonePermission": false
+        }
+      ],
+      "react-native-fast-tflite",
+      [
+        "expo-build-properties",
+        { "android": { "minSdkVersion": 26 }, "ios": { "deploymentTarget": "16.4" } }
+      ],
+      [
+        "expo-splash-screen",
+        { "backgroundColor": "#f7f5ee", "image": "./assets/splash-icon.png", "imageWidth": 160 }
+      ]
+    ]
   }
 }
