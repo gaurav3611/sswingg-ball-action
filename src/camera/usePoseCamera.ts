@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useTensorflowModel } from 'react-native-fast-tflite';
 import { NitroModules } from 'react-native-nitro-modules';
 import { runAtTargetFps, useFrameProcessor } from 'react-native-vision-camera';
 import { useRunOnJS, useSharedValue } from 'react-native-worklets-core';
 import { useResizePlugin } from 'vision-camera-resize-plugin';
+import { useModel } from './useModel';
 import { addFrame, emptyCounters, summariseSegments, type FrameCounters, type TimingSummary } from '@/capture/timing';
 import { decodeMultiPose, MOVENET_INPUT_SIZE } from '@/pose/decode';
 import { PoseEngine } from '@/pose/engine';
@@ -57,7 +57,7 @@ export function usePoseCamera(args: {
   onRotationLearned: (orientation: string, rotation: Rotation) => void;
 }) {
   const analyseHz = args.analyseHz ?? DEFAULT_ANALYSE_HZ;
-  const plugin = useTensorflowModel(MODEL_SOURCE, []);
+  const plugin = useModel(MODEL_SOURCE);
   const model = plugin.state === 'loaded' ? plugin.model : undefined;
   // Vision Camera 4 cannot use a Nitro object in a worklet directly, so it is boxed first.
   const boxed = useMemo(() => (model ? NitroModules.box(model) : undefined), [model]);

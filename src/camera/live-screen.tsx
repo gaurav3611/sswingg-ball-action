@@ -134,7 +134,7 @@ export function LiveScreen() {
         if (!haveTrack) {
           poseReason =
             pose.model === 'error'
-              ? `The pose model did not load: ${pose.modelError ?? 'unknown error'}.`
+              ? `The pose model did not load: ${(pose.modelError ?? 'unknown error').split('\n')[0]}.`
               : res.rotation === null
                 ? 'The camera orientation was never confirmed, so no pose was recorded. Stand in view before recording.'
                 : 'No one was found in the video.';
@@ -423,7 +423,7 @@ export function LiveScreen() {
             {pose.model === 'error' ? (
               <View style={[styles.banner, { backgroundColor: colors.red }]}>
                 <Txt variant="small" style={{ color: '#fff' }}>
-                  The pose model could not load: {pose.modelError}. You can still record video. There will be no skeleton.
+                  The pose model could not load: {(pose.modelError ?? '').split('\n')[0]}. You can still record video. There will be no skeleton.
                 </Txt>
               </View>
             ) : null}
